@@ -1,10 +1,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h> /* for unlink() */
-#include <sys/stat.h> /* for stat() */
 #include "glk.h"
 #include "cheapglk.h"
+
+#if _WIN32
+
+#include <windows.h>
+#include <fileapi.h>
+#include <io.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+
+// R_OK is not defined by Win32, but the value is documented here:
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/access-waccess?view=msvc-170
+#define R_OK 04
+#define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+
+#else /* !_WIN32 */
+
+#include <unistd.h> /* for unlink() */
+#include <sys/stat.h> /* for stat() */
+
+#endif /* _WIN32 */
 
 /* This file implements filerefs as they work in a stdio system: a
     fileref contains a pathname, a text/binary flag, and a file
@@ -104,13 +122,27 @@ static char *gli_suffix_for_usage(glui32 usage)
 
 frefid_t glk_fileref_create_temp(glui32 usage, glui32 rock)
 {
-    char filename[BUFLEN];
     fileref_t *fref;
-    
+
+#if _WIN32
+    char tmpdir[MAX_PATH + 1];
+    char filename[MAX_PATH + 1];
+    DWORD result;
+
+    result = GetTempPath(MAX_PATH, tmpdir);
+    if (result) {
+        result = GetTempFileName(tmpdir, "glk", 0, filename);
+    }
+    if (result) {
+        fref = gli_new_fileref(filename, usage, rock);
+    }
+#else
+    char filename[BUFLEN];
     sprintf(filename, "/tmp/glktempfref-XXXXXX");
     close(mkstemp(filename));
-    
     fref = gli_new_fileref(filename, usage, rock);
+#endif
+
     if (!fref) {
         gli_strict_warning("fileref_create_temp: unable to create fileref.");
         return NULL;
